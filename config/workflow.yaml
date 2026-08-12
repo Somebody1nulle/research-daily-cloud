@@ -1,0 +1,33 @@
+# 调研工作流云端版 · 配置
+# 所有表结构/业务参数集中在此，改配置不改代码
+
+feishu:
+  base_token: "THcIb3m3QavggOstV6Nco6PMnub"   # 调研工作流中枢
+  tables:
+    daily_research: "tbltZ6EsyRxXUtsc"        # 每日调研
+    daily_hot: "tblDJdfw4PjhceF8"             # 每日热点
+    topics: "tblgrVhtGtQp1yXD"                # 备选选题库
+    board: "tbl00BpGpMrA6vWp"                 # 主题进度看板
+    archives: "tblCMgsPyW1CFWuw"              # 专题档案库
+    hot_archive: "tblXSxpdlQY5F8WW"           # 每日热点归档
+
+# 热点五领域（与每日热点表「领域」单选选项一致）
+hot_domains: ["科技综合", "AI大模型", "机器人", "智能汽车·AI CAR", "智能硬件"]
+
+# 每日配额
+quota:
+  research_text: 5      # 每日调研-文字稿目标条数（3-5）
+  research_av: 4        # 每日调研-音视频目标条数（3-5）
+  hotspots: 5           # 每日热点条数（2026-08-13 起为 5）
+  candidate_deepread: 5 # 候选精读标记上限
+
+# LLM（Kimi）
+llm:
+  base_url: "https://api.kimi.com/coding/v1"
+  model: "k3-256k"
+  max_retries: 2
+
+# 搜索（Tavily）
+search:
+  max_results_per_query: 6
+  days_lookback: 5        # 搜索结果时间范围（天）
