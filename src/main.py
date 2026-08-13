@@ -190,6 +190,14 @@ def step_research(fz, sc, llm, cfg, pr, dry_run):
     result = llm.chat_json(prompt)
     texts = result.get("texts", [])
     avs = result.get("avs", [])
+
+    # 链接白名单校验：LLM 输出的 url 必须真实存在于搜索结果中（防幻觉链接）
+    valid_urls = {c["url"] for c in text_cands[:20] + av_cands[:15]}
+    before = len(texts) + len(avs)
+    texts = [t for t in texts if t.get("url") in valid_urls]
+    avs = [a for a in avs if a.get("url") in valid_urls]
+    if len(texts) + len(avs) < before:
+        print(f"  [链接校验] 丢弃 {before - len(texts) - len(avs)} 条幻觉链接")
     print(f"[步骤3] Kimi 选出：文字 {len(texts)} 篇 / 音视频 {len(avs)} 份")
 
     today = today_cst()
@@ -253,6 +261,13 @@ def step_hotspots(fz, sc, llm, cfg, pr, dry_run):
     if isinstance(picks, dict):
         picks = picks.get("items") or next((v for v in picks.values() if isinstance(v, list)), [])
     picks = [p for p in picks if isinstance(p, dict)]
+
+    # 链接白名单校验：LLM 输出的 url 必须真实存在于搜索结果中（防幻觉链接/列表页链接）
+    valid_urls = {c["url"] for c in all_cands}
+    before = len(picks)
+    picks = [p for p in picks if p.get("url") in valid_urls]
+    if len(picks) < before:
+        print(f"  [链接校验] 丢弃 {before - len(picks)} 条幻觉/失配链接")
     print(f"[步骤4] Kimi 选出 {len(picks)} 条热点")
 
     rows = []
