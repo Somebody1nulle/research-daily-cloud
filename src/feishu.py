@@ -39,8 +39,17 @@ class FeishuClient:
         return {"Authorization": f"Bearer {self.token()}"}
 
     def _request(self, method, path, retry401=True, **kwargs):
-        """统一请求入口，处理 401 刷新与业务错误码"""
-        r = requests.request(method, f"{BASE}{path}", headers=self._headers(), timeout=30, **kwargs)
+        """统一请求入口，处理 401 刷新、业务错误码、SSL/连接抖动重试"""
+        last_err = None
+        for attempt in range(4):
+            try:
+                r = requests.request(method, f"{BASE}{path}", headers=self._headers(), timeout=30, **kwargs)
+                break
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+                last_err = e
+                time.sleep(2 * (attempt + 1))
+        else:
+            raise RuntimeError(f"飞书API网络失败 {path}: {last_err}")
         if r.status_code == 401 and retry401:
             self._token = None  # 强制刷新
             return self._request(method, path, retry401=False, **kwargs)

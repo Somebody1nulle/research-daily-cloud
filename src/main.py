@@ -305,6 +305,75 @@ def step_hotspots(fz, sc, llm, cfg, pr, dry_run):
     print(f"[步骤4] 已写入每日热点 {len(rows)} 条")
 
 
+# ---------------------------------------------------------------- 步骤 5：精读扫描（打标未处理的执行精读）
+def step_deepread(fz, llm, cfg, dry_run):
+    """扫描「是否精读=是 且 精读状态≠已做卡片」的记录，每天最多处理 N 篇。
+    防重复：精读状态字段是标记，已做卡片的跳过；
+    限量：避免积压条目过多导致单次运行时间过长（用户 2026-08-13 要求）。"""
+    t_res = cfg["feishu"]["tables"]["daily_research"]
+    folder_token = cfg["feishu"].get("obsidian_folder")
+    max_per_day = cfg["quota"].get("deepread_per_day", 3)
+
+    records = fz.list_records(t_res)
+    pending = []
+    for r in records:
+        f = r["fields"]
+        jindu = f.get("是否精读")
+        jindu = jindu[0] if isinstance(jindu, list) and jindu else jindu
+        status = f.get("精读状态")
+        status = status[0] if isinstance(status, list) and status else status
+        if jindu == "是" and status != "已做卡片":
+            pending.append(r)
+    # 最旧的优先
+    pending.sort(key=lambda r: str(r["fields"].get("日期") or ""))
+    print(f"[步骤5] 待精读 {len(pending)} 篇，本次最多处理 {max_per_day} 篇")
+
+    from src.deepread import fetch_text, upload_markdown, DEEPREAD_PROMPT, slugify
+    topic = ""
+    try:
+        board = fz.list_records(cfg["feishu"]["tables"]["board"])
+        topic = board[-1]["fields"].get("月度主题", "")
+    except Exception:
+        pass
+
+    done, skipped = 0, []
+    for r in pending[:max_per_day]:
+        f = r["fields"]
+        title = str(f.get("标题") or "")
+        url = str(f.get("链接") or "")
+        mtype = f.get("材料类型")
+        mtype = mtype[0] if isinstance(mtype, list) and mtype else mtype
+        print(f"  [精读] {title[:40]} ({mtype})")
+
+        if mtype in ("视频", "播客"):
+            skipped.append(f"{title[:30]}：音视频无法云端处理，需本地逐字稿")
+            continue
+        body = fetch_text(url)
+        if not body:
+            skipped.append(f"{title[:30]}：全文抓取失败（反爬/JS渲染），不标记，留待本地处理")
+            continue
+
+        if dry_run:
+            print(f"    [dry] 正文 {len(body)} 字，将生成精读+卡片并上传")
+            done += 1
+            continue
+
+        result = llm.chat_json(DEEPREAD_PROMPT.format(
+            title=title, url=url, body=body[:12000], topic=topic))
+        date_prefix = str(f.get("日期") or "")[:10] or today_cst().isoformat()
+        base_name = f"{date_prefix}_{slugify(title)}"
+        headers = {"Authorization": f"Bearer {fz.token()}"}
+        upload_markdown(headers, folder_token, f"{base_name}_精读.md", result["summary"])
+        upload_markdown(headers, folder_token, f"{base_name}_卡片.md", result["card"])
+        fz.update_record(t_res, r["record_id"], {"精读状态": "已做卡片"})
+        done += 1
+        print(f"    已生成并上传：{base_name}_精读.md / _卡片.md")
+
+    print(f"[步骤5] 完成 {done} 篇" + (f"；跳过 {len(skipped)}：" if skipped else ""))
+    for s in skipped:
+        print(f"    [跳过] {s}")
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
@@ -324,6 +393,7 @@ def main():
     step_sync_topics(fz, cfg, archived, args.dry_run)
     step_research(fz, sc, llm, cfg, pr, args.dry_run)
     step_hotspots(fz, sc, llm, cfg, pr, args.dry_run)
+    step_deepread(fz, llm, cfg, args.dry_run)
     print("===== 完成 =====")
 
 

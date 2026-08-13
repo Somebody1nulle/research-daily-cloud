@@ -3,6 +3,7 @@
 
 feishu:
   base_token: "THcIb3m3QavggOstV6Nco6PMnub"   # 调研工作流中枢
+  obsidian_folder: "TYuefbX0ulOdcadLNmQcYIVcnHh"  # 飞书云盘 日常工作流/Obsidian（精读产出上传处，与本地 Obsidian 同步）
   tables:
     daily_research: "tbltZ6EsyRxXUtsc"        # 每日调研
     daily_hot: "tblDJdfw4PjhceF8"             # 每日热点
@@ -21,6 +22,7 @@ quota:
   research_av: 2        # 每日调研-音视频上限
   hotspots: 5           # 每日热点条数（2026-08-13 起为 5）
   candidate_deepread: 5 # 候选精读标记上限
+  deepread_per_day: 3   # 云端每次运行最多精读的篇数（防积压导致超时）
 
 # 小专题日程（脚本按日期自动轮换看板，跨主题时只需改这里）
 # date: 生效日期；subtopic: 小专题名；task: 当日任务描述
