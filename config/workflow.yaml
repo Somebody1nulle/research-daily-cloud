@@ -21,6 +21,25 @@ quota:
   hotspots: 5           # 每日热点条数（2026-08-13 起为 5）
   candidate_deepread: 5 # 候选精读标记上限
 
+# 小专题日程（脚本按日期自动轮换看板，跨主题时只需改这里）
+# date: 生效日期；subtopic: 小专题名；task: 当日任务描述
+schedule:
+  - date: "2026-08-11"
+    subtopic: "世界模型概念与技术路线"
+    task: "世界模型概念与技术路线：三大路线对比（生成派/JEPA派/model-based RL派）"
+  - date: "2026-08-12"
+    subtopic: "具身智能中的世界模型"
+    task: "具身智能中的世界模型（专题调研）：世界模型如何驱动具身智能、VLA模型、仿真到真实迁移"
+  - date: "2026-08-13"
+    subtopic: "物理AI与行业应用"
+    task: "物理AI与行业应用（专题调研）：机器人/自动驾驶/工业制造三大场景落地"
+  - date: "2026-08-14"
+    subtopic: "世界模型与物理AI企业格局"
+    task: "世界模型与物理AI企业格局（专题调研）：玩家图谱、融资、路线对比、商业化"
+  - date: "2026-08-15"
+    subtopic: "总结报告"
+    task: "总结报告：聚焦世界模型与物理AI，客观呈现不预设路线立场"
+
 # LLM（Kimi）
 llm:
   base_url: "https://api.kimi.com/coding/v1"

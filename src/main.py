@@ -152,9 +152,20 @@ def step_research(fz, sc, llm, cfg, pr, dry_run):
     if not board:
         print("[步骤3] 看板为空（冷启动），跳过定向搜索")
         return
-    latest = board[-1]["fields"]  # 看板只有一行当前行
-    subtopic = latest.get("小专题", "")
-    task = latest.get("当日任务", "")
+    latest = board[-1]  # 看板只有一行当前行
+    subtopic = latest["fields"].get("小专题", "")
+    task = latest["fields"].get("当日任务", "")
+
+    # --- 日程轮换：按今天日期对照 config.schedule，看板滞后则自动推进 ---
+    today = today_cst()
+    entry = next((e for e in cfg.get("schedule", [])
+                  if str(e["date"]) == today.isoformat()), None)
+    if entry and entry["subtopic"] != subtopic:
+        print(f"[步骤3] 日程轮换：{subtopic} → {entry['subtopic']}")
+        subtopic, task = entry["subtopic"], entry["task"]
+        if not dry_run:
+            fz.update_record(t_board, latest["record_id"],
+                             {"小专题": subtopic, "当日任务": task})
     print(f"[步骤3] 当前小专题: {subtopic} | 任务: {str(task)[:50]}")
 
     rp = pr["research"]

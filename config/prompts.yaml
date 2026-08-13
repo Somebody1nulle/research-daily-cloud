@@ -12,7 +12,8 @@ research:
   av_queries:
     - "{subtopic} 讲座 视频"
     - "{subtopic} 演讲 视频 科普"
-    - "{subtopic} bilibili 讲解"
+    - "{subtopic} site:bilibili.com"
+    - "{subtopic} site:youtube.com 讲解"
 
   select_prompt: |
     你是调研助手，为一位【产品经理】筛选学习材料（不要高深数学/论文推导，要概念、原理、直觉类比、行业逻辑，小白能看懂并复述）。
