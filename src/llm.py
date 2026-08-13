@@ -15,6 +15,7 @@ class KimiClient:
     def chat_json(self, prompt, temperature=1):
         """发送提示词并期望严格 JSON 输出；解析失败自动重试
         注意：k3 系列模型只接受 temperature=1，不要传其他值"""
+        import time
         last_err = None
         for attempt in range(self.max_retries + 1):
             try:
@@ -32,12 +33,16 @@ class KimiClient:
                     },
                     timeout=120,
                 )
-                r.raise_for_status()
+                if r.status_code != 200:
+                    # 打印错误体便于诊断（限流/内容审核/参数错误）
+                    raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
                 content = r.json()["choices"][0]["message"]["content"]
                 return self._parse_json(content)
             except Exception as e:
                 last_err = e
                 print(f"  [LLM 第{attempt+1}次失败] {e}")
+                if attempt < self.max_retries:
+                    time.sleep(5 * (attempt + 1))  # 退避：5s/10s，给限流恢复时间
         raise RuntimeError(f"LLM 输出解析失败（重试{self.max_retries}次后仍失败）: {last_err}")
 
     @staticmethod
