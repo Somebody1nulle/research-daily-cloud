@@ -363,11 +363,11 @@ def step_deepread(fz, llm, cfg, dry_run):
         date_prefix = str(f.get("日期") or "")[:10] or today_cst().isoformat()
         base_name = f"{date_prefix}_{slugify(title)}"
         headers = {"Authorization": f"Bearer {fz.token()}"}
-        upload_markdown(headers, folder_token, f"{base_name}_精读.md", result["summary"])
-        upload_markdown(headers, folder_token, f"{base_name}_卡片.md", result["card"])
+        # 单文档产出（2026-08-13 起）：精读+卡片合并为一个 md
+        upload_markdown(headers, folder_token, f"{base_name}.md", result["note"])
         fz.update_record(t_res, r["record_id"], {"精读状态": "已做卡片"})
         done += 1
-        print(f"    已生成并上传：{base_name}_精读.md / _卡片.md")
+        print(f"    已生成并上传：{base_name}.md")
 
     print(f"[步骤5] 完成 {done} 篇" + (f"；跳过 {len(skipped)}：" if skipped else ""))
     for s in skipped:
