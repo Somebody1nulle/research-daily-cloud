@@ -16,8 +16,9 @@ hot_domains: ["科技综合", "AI大模型", "机器人", "智能汽车·AI CAR"
 
 # 每日配额
 quota:
-  research_text: 5      # 每日调研-文字稿目标条数（3-5）
-  research_av: 4        # 每日调研-音视频目标条数（3-5）
+  research_total: 5     # 每日调研总条数（2026-08-14 起固定 5）
+  research_text: 4      # 每日调研-文字稿上限
+  research_av: 2        # 每日调研-音视频上限
   hotspots: 5           # 每日热点条数（2026-08-13 起为 5）
   candidate_deepread: 5 # 候选精读标记上限
 

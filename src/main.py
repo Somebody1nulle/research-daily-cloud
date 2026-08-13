@@ -185,6 +185,7 @@ def step_research(fz, sc, llm, cfg, pr, dry_run):
         candidates=json.dumps(candidates, ensure_ascii=False, indent=1),
         n_text=cfg["quota"]["research_text"],
         n_av=cfg["quota"]["research_av"],
+        n_total=cfg["quota"]["research_total"],
         n_cand=cfg["quota"]["candidate_deepread"],
     )
     result = llm.chat_json(prompt)
@@ -198,6 +199,20 @@ def step_research(fz, sc, llm, cfg, pr, dry_run):
     avs = [a for a in avs if a.get("url") in valid_urls]
     if len(texts) + len(avs) < before:
         print(f"  [链接校验] 丢弃 {before - len(texts) - len(avs)} 条幻觉链接")
+
+    # 配额硬约束：文字 ≤4、音视频 ≤2、合计 ≤5（优先保留候选精读，再保文字）
+    q = cfg["quota"]
+    texts = sorted(texts, key=lambda t: not t.get("candidate"))[: q["research_text"]]
+    avs = sorted(avs, key=lambda a: not a.get("candidate"))[: q["research_av"]]
+    overflow = len(texts) + len(avs) - q["research_total"]
+    if overflow > 0:
+        # 先裁非候选的音视频，再裁非候选的文字
+        pool = ([("av", i) for i, a in enumerate(avs) if not a.get("candidate")]
+                + [("tx", i) for i, t in enumerate(texts) if not t.get("candidate")])
+        drop = set(pool[:overflow])
+        avs = [a for i, a in enumerate(avs) if ("av", i) not in drop]
+        texts = [t for i, t in enumerate(texts) if ("tx", i) not in drop]
+        print(f"  [配额裁剪] 超出 {overflow} 条，已裁至合计 {len(texts)+len(avs)} 条")
     print(f"[步骤3] Kimi 选出：文字 {len(texts)} 篇 / 音视频 {len(avs)} 份")
 
     today = today_cst()
