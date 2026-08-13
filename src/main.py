@@ -34,6 +34,11 @@ def load_config():
     return wf, pr
 
 
+def load_tt_config():
+    with open(ROOT / "config" / "thinktank.yaml", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
 def today_cst():
     return datetime.now(CST).date()
 
@@ -394,6 +399,8 @@ def main():
     step_research(fz, sc, llm, cfg, pr, args.dry_run)
     step_hotspots(fz, sc, llm, cfg, pr, args.dry_run)
     step_deepread(fz, llm, cfg, args.dry_run)
+    from src.thinktank import step_thinktank
+    step_thinktank(fz, llm, load_tt_config(), args.dry_run)
     print("===== 完成 =====")
 
 

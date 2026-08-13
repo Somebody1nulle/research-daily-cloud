@@ -1,0 +1,45 @@
+# 每日智库 · 信源与规则配置
+# 8家英文政策智库。RSS 失效时把 type 改为 scrape 并补 list_url。
+
+tables:
+  main: "tblbOz8rraghdbNZ"      # 每日智库（只放当天）
+  archive: "tblrJr4EU1WUkfMO"   # 每日智库归档
+
+# 抓取窗口：前一天 00:00 ~ 今天 09:00（北京时间）
+window:
+  end_hour: 9
+
+topics: ["中美经贸", "科技竞争", "宏观经济", "货币政策", "地缘政治", "能源与气候", "其他"]
+
+# 相关度评分规则（写进 LLM 提示词）
+relevance_rules: "与中美经贸/科技竞争/宏观经济直接相关=4-5，间接相关=3，其他=1-2"
+
+sources:
+  - name: "Wilson Center"
+    type: "rss"
+    feed_url: "https://www.wilsoncenter.org/rss.xml"
+  - name: "CSIS"
+    type: "rss"
+    feed_url: "https://www.csis.org/rss.xml"
+  - name: "Brookings"
+    type: "rss"
+    feed_url: "https://www.brookings.edu/feed/"
+  - name: "CFR"
+    type: "rss"
+    feed_url: "https://www.cfr.org/rss.xml"
+  - name: "Asia Society"
+    type: "rss"
+    feed_url: "https://asiasociety.org/rss.xml"
+  - name: "MERICS"
+    type: "rss"
+    feed_url: "https://merics.org/en/rss.xml"
+  - name: "Bridgewater"
+    type: "scrape"
+    list_url: "https://www.bridgewater.com/research-and-insights"
+    path_include: "/research-and-insights/"   # 只保留文章链接，过滤导航页
+    note: "无公开RSS，抓研究洞察列表页"
+  - name: "Economic Club of Washington"
+    type: "scrape"
+    list_url: "https://www.economicclub.org/events"
+    path_include: "/events/"
+    note: "无公开RSS，抓活动/实录页面"
