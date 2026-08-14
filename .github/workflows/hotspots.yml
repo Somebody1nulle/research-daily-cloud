@@ -1,0 +1,30 @@
+name: 每日热点流（归档+更新+备选）
+
+on:
+  schedule:
+    # UTC 01:05 = 北京时间 09:05（与调研流错开5分钟，防限流）
+    - cron: "5 1 * * *"
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  hotspots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 执行热点流（热点归档 + 热点更新 + 备选主题同步）
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          KIMI_BASE_URL: ${{ secrets.KIMI_BASE_URL }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: python -m src.main --steps archive,sync,hotspots

@@ -1,0 +1,30 @@
+name: 每日智库流（归档+8家信源扫描）
+
+on:
+  schedule:
+    # UTC 01:10 = 北京时间 09:10（与调研/热点流错开，防限流）
+    - cron: "10 1 * * *"
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  thinktank:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 执行智库流（智库归档 + 8家信源扫描写入）
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          KIMI_BASE_URL: ${{ secrets.KIMI_BASE_URL }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: python -m src.main --steps thinktank

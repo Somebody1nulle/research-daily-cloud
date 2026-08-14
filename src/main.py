@@ -380,9 +380,21 @@ def step_deepread(fz, llm, cfg, dry_run):
 
 
 # ---------------------------------------------------------------- main
+STEPS = {
+    "archive":   lambda fz, sc, llm, cfg, pr, dry: step_archive(fz, cfg, dry),
+    "sync":      lambda fz, sc, llm, cfg, pr, dry: step_sync_topics(fz, cfg, step_archive(fz, cfg, True), dry),
+    "research":  lambda fz, sc, llm, cfg, pr, dry: step_research(fz, sc, llm, cfg, pr, dry),
+    "hotspots":  lambda fz, sc, llm, cfg, pr, dry: step_hotspots(fz, sc, llm, cfg, pr, dry),
+    "deepread":  lambda fz, sc, llm, cfg, pr, dry: step_deepread(fz, llm, cfg, dry),
+    "thinktank": lambda fz, sc, llm, cfg, pr, dry: __import__("src.thinktank", fromlist=["step_thinktank"]).step_thinktank(fz, llm, load_tt_config(), dry),
+}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="只读+搜索+LLM，不写飞书")
+    ap.add_argument("--steps", default="archive,sync,research,hotspots,deepread,thinktank",
+                    help="逗号分隔的步骤名，默认全跑。可选: " + ",".join(STEPS))
     args = ap.parse_args()
 
     cfg, pr = load_config()
@@ -394,13 +406,20 @@ def main():
                      max_retries=cfg["llm"]["max_retries"])
 
     print(f"===== 调研工作流云端版 {datetime.now(CST).strftime('%Y-%m-%d %H:%M')} (北京时间) {'[DRY-RUN]' if args.dry_run else ''} =====")
-    archived = step_archive(fz, cfg, args.dry_run)
-    step_sync_topics(fz, cfg, archived, args.dry_run)
-    step_research(fz, sc, llm, cfg, pr, args.dry_run)
-    step_hotspots(fz, sc, llm, cfg, pr, args.dry_run)
-    step_deepread(fz, llm, cfg, args.dry_run)
-    from src.thinktank import step_thinktank
-    step_thinktank(fz, llm, load_tt_config(), args.dry_run)
+    print(f"===== 执行步骤: {args.steps} =====")
+    archived = None
+    for name in args.steps.split(","):
+        name = name.strip()
+        if name not in STEPS:
+            print(f"!! 未知步骤: {name}，跳过")
+            continue
+        if name == "archive":
+            archived = step_archive(fz, cfg, args.dry_run)
+        elif name == "sync":
+            # sync 依赖 archive 的结果；若本流程没跑 archive，用干跑模式取待归档列表
+            step_sync_topics(fz, cfg, archived if archived is not None else step_archive(fz, cfg, True), args.dry_run)
+        else:
+            STEPS[name](fz, sc, llm, cfg, pr, args.dry_run)
     print("===== 完成 =====")
 
 
