@@ -280,7 +280,20 @@ def step_hotspots(fz, sc, llm, cfg, pr, dry_run):
         candidates=json.dumps(all_cands[:40], ensure_ascii=False, indent=1),
         n_hot=cfg["quota"]["hotspots"],
     )
-    picks = llm.chat_json(prompt)
+    try:
+        picks = llm.chat_json(prompt)
+    except RuntimeError as e:
+        # Kimi 内容审核（content_filter high risk）：候选正文触发拦截时，
+        # 降级为「仅标题+链接」重试一次（摘要是主要触发源）
+        print(f"  [LLM 全量候选被拒，降级为仅标题重试] {str(e)[:80]}")
+        slim = [{"domain": c.get("domain"), "title": c.get("title"), "url": c.get("url")}
+                for c in all_cands[:40]]
+        prompt2 = hp["select_prompt"].format(
+            window=window,
+            candidates=json.dumps(slim, ensure_ascii=False, indent=1),
+            n_hot=cfg["quota"]["hotspots"],
+        )
+        picks = llm.chat_json(prompt2)
     # 容错：兼容 {"items":[...]} / 纯数组 / 其他键包裹
     if isinstance(picks, dict):
         picks = picks.get("items") or next((v for v in picks.values() if isinstance(v, list)), [])
@@ -412,18 +425,27 @@ def main():
     print(f"===== 调研工作流云端版 {datetime.now(CST).strftime('%Y-%m-%d %H:%M')} (北京时间) {'[DRY-RUN]' if args.dry_run else ''} =====")
     print(f"===== 执行步骤: {args.steps} =====")
     archived = None
+    failed_steps = []
     for name in args.steps.split(","):
         name = name.strip()
         if name not in STEPS:
             print(f"!! 未知步骤: {name}，跳过")
             continue
-        if name == "archive":
-            archived = step_archive(fz, cfg, args.dry_run)
-        elif name == "sync":
-            # sync 依赖 archive 的结果；若本流程没跑 archive，用干跑模式取待归档列表
-            step_sync_topics(fz, cfg, archived if archived is not None else step_archive(fz, cfg, True), args.dry_run)
-        else:
-            STEPS[name](fz, sc, llm, cfg, pr, args.dry_run)
+        try:
+            if name == "archive":
+                archived = step_archive(fz, cfg, args.dry_run)
+            elif name == "sync":
+                # sync 依赖 archive 的结果；若本流程没跑 archive，用干跑模式取待归档列表
+                step_sync_topics(fz, cfg, archived if archived is not None else step_archive(fz, cfg, True), args.dry_run)
+            else:
+                STEPS[name](fz, sc, llm, cfg, pr, args.dry_run)
+        except Exception as e:
+            # 单步失败不中断整流，但记录并最终以非零码退出（运行标红可见）
+            failed_steps.append(name)
+            print(f"[步骤 {name}] 失败（已跳过，继续后续步骤）: {type(e).__name__}: {str(e)[:150]}")
+    if failed_steps:
+        print(f"===== 完成（失败步骤: {','.join(failed_steps)}）=====")
+        sys.exit(1)
     print("===== 完成 =====")
 
 
