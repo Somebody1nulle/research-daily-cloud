@@ -171,6 +171,10 @@ def step_research(fz, sc, llm, cfg, pr, dry_run):
         if not dry_run:
             fz.update_record(t_board, latest["record_id"],
                              {"小专题": subtopic, "当日任务": task})
+    # 总结报告日不做定向搜索（避免拿"总结报告"当主题词搜出无关内容）
+    if "总结" in str(subtopic):
+        print(f"[步骤3] 今天是总结报告日，跳过调研内容刷新（总结由本地产出）")
+        return
     print(f"[步骤3] 当前小专题: {subtopic} | 任务: {str(task)[:50]}")
 
     rp = pr["research"]
