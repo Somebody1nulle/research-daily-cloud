@@ -62,25 +62,26 @@ class FeishuClient:
     # ---------- 记录读取 ----------
     def list_records(self, table_id, page_size=100):
         """分页拉取整张表，返回 [{record_id, fields:{字段名:值}}, ...]
-        v3 返回位置数组：fields(字段名) 与 data(行值) 按位置对应"""
-        items, page_token = [], None
+        v3 返回位置数组：fields(字段名) 与 data(行值) 按位置对应
+        注意：v3 records 接口用 offset 分页（无 page_token），且单页上限 20 条；
+        空页/无进展时强制 break 防死循环（曾因此挂起 30 分钟）"""
+        items, offset = [], 0
         while True:
-            params = {"page_size": page_size}
-            if page_token:
-                params["page_token"] = page_token
             data = self._request(
                 "GET",
                 f"/bases/{self.base_token}/tables/{table_id}/records",
-                params=params,
+                params={"page_size": page_size, "offset": offset},
             )
             names = data.get("fields", [])
             ids = data.get("record_id_list", [])
             rows = data.get("data", [])
+            if not rows:
+                break
             for rid, row in zip(ids, rows):
                 items.append({"record_id": rid, "fields": dict(zip(names, row))})
+            offset += len(rows)
             if not data.get("has_more"):
                 break
-            page_token = data.get("page_token") or data.get("query_context", {}).get("page_token")
         return items
 
     # ---------- 记录写入 ----------
