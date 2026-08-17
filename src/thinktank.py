@@ -37,7 +37,7 @@ def parse_date(entry):
 
 
 def fetch_rss(source, window_start, window_end):
-    """抓 RSS，过滤窗口内条目"""
+    """抓 RSS，只保留窗口内条目；无发布时间的条目丢弃（用户要求：只要昨日更新）"""
     try:
         r = requests.get(source["feed_url"], headers=UA, timeout=(8, 20))
         r.raise_for_status()
@@ -45,21 +45,56 @@ def fetch_rss(source, window_start, window_end):
         items = []
         for e in feed.entries:
             pub = parse_date(e)
-            summary = re.sub(r"<[^>]+>", "", getattr(e, "summary", "") or "")[:400]
             if pub is None:
-                # 无发布时间的保留，发布日期记为抓取日期
-                items.append({"title": e.get("title", ""), "url": e.get("link", ""),
-                              "published_at": None, "summary_raw": summary})
-            elif window_start <= pub < window_end:
-                items.append({"title": e.get("title", ""), "url": e.get("link", ""),
-                              "published_at": pub, "summary_raw": summary})
+                continue  # 无日期不收
+            if not (window_start <= pub < window_end):
+                continue  # 窗口外（旧文/未来）不收
+            summary = re.sub(r"<[^>]+>", "", getattr(e, "summary", "") or "")[:400]
+            items.append({"title": e.get("title", ""), "url": e.get("link", ""),
+                          "published_at": pub, "summary_raw": summary})
         return items, None
     except Exception as ex:
         return [], str(ex)
 
 
+def _parse_date_near(tag, path_inc=""):
+    """从链接附近的 HTML 中解析日期（time 标签 / datetime 属性 / 常见日期文本）。
+    向上爬层时若进入含多个文章链接的「列表容器」则停止——防止把别的文章的日期错配过来。"""
+    from dateutil import parser as dup
+    scope = tag
+    for _ in range(4):  # 最多向上找4层父元素
+        if scope is None:
+            break
+        # 多文章容器检测：本层含 ≥2 个文章链接 → 已逃出单篇文章卡片，停止
+        if path_inc and len([a for a in scope.find_all("a", href=True)
+                             if path_inc in str(a["href"])]) >= 2:
+            return None
+        t = scope.find("time")
+        if t:
+            for attr in ("datetime", "title"):
+                if t.get(attr):
+                    try:
+                        return dup.parse(t[attr])
+                    except Exception:
+                        pass
+            if t.get_text(strip=True):
+                try:
+                    return dup.parse(t.get_text(strip=True))
+                except Exception:
+                    pass
+        text = scope.get_text(" ", strip=True)[:300]
+        m = re.search(r"(20\d\d[-/年]\d{1,2}[-/月]\d{1,2})", text)
+        if m:
+            try:
+                return dup.parse(m.group(1).replace("年", "-").replace("月", "-").replace("日", ""))
+            except Exception:
+                pass
+        scope = scope.parent
+    return None
+
+
 def fetch_scrape(source, window_start, window_end):
-    """无 RSS 站点抓列表页（取前 15 篇文章链接，无日期信息的保留）"""
+    """无 RSS 站点抓列表页；只保留能解析出日期且在窗口内的条目，无日期一律丢弃"""
     try:
         from bs4 import BeautifulSoup
         r = requests.get(source["list_url"], headers=UA, timeout=(8, 20))
@@ -83,7 +118,15 @@ def fetch_scrape(source, window_start, window_end):
             if href.rstrip("/") == source["list_url"].rstrip("/"):
                 continue
             seen.add(href)
-            items.append({"title": title, "url": href, "published_at": None, "summary_raw": ""})
+            pub = _parse_date_near(a, path_inc)
+            if pub is None:
+                continue  # 无日期不收
+            if pub.tzinfo is None:
+                from src.main import CST as _CST
+                pub = pub.replace(tzinfo=_CST)
+            if not (window_start <= pub < window_end):
+                continue  # 旧文不收
+            items.append({"title": title, "url": href, "published_at": pub, "summary_raw": ""})
             if len(items) >= 15:
                 break
         return items, None
@@ -114,10 +157,11 @@ def step_thinktank(fz, llm, tt_cfg, dry_run):
         fz.batch_delete(t_main, [r["record_id"] for r in old])
         print(f"[智库] 已归档 {len(rows)} 条")
 
-    # ---- 抓取窗口 ----
+    # ---- 抓取窗口：前一天 00:00 ~ 今天 09:00（北京时间，与需求一致）----
     end_hour = tt_cfg["window"]["end_hour"]
     window_end = datetime(today.year, today.month, today.day, end_hour, tzinfo=CST)
-    window_start = window_end - timedelta(days=1)
+    yesterday = today - timedelta(days=1)
+    window_start = datetime(yesterday.year, yesterday.month, yesterday.day, 0, 0, tzinfo=CST)
     print(f"[智库] 抓取窗口: {window_start.strftime('%m-%d %H:%M')} ~ {window_end.strftime('%m-%d %H:%M')}")
 
     # ---- 逐信源抓取（单家失败不中断）----
@@ -145,6 +189,17 @@ def step_thinktank(fz, llm, tt_cfg, dry_run):
     new_items = [it for it in all_items if it["url"] and it["url"] not in existing]
     print(f"[智库] 抓取 {len(all_items)} 条，去重后新增 {len(new_items)} 条")
     if not new_items:
+        # 用户要求：昨日全部智库无更新时，写入一条占位记录；有更新才记录正式条目
+        if not dry_run:
+            fz.batch_create(t_main, [{
+                "原标题": "（昨日无更新）",
+                "中文标题": f"昨日无更新：8家智库均无新发布（{window_start.strftime('%m-%d')}）",
+                "抓取日期": date_str(today),
+                "状态": "跳过",
+            }])
+            print("[智库] 已写入「昨日无更新」占位记录")
+        else:
+            print("[智库] [dry] 应写入「昨日无更新」占位记录")
         return
 
     # ---- LLM 批量生成中文标题/摘要/标签/相关度（每批≤20）----
