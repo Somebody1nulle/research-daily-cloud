@@ -41,7 +41,7 @@ def _discover_feed(home_url):
     try:
         r = requests.get(home_url, headers=UA, timeout=(8, 15))
         r.raise_for_status()
-        m = re.search(r'<link[^>]+type=["\']application/rss\+xml["\'][^>]*>', r.text, re.I)
+        m = re.search(r'<link[^>]+type=["\']application/(?:rss|atom)\+xml["\'][^>]*>', r.text, re.I)
         if not m:
             return None
         tag = m.group(0)
@@ -220,16 +220,23 @@ def step_thinktank(fz, llm, tt_cfg, dry_run):
     print(f"[智库] 抓取 {len(all_items)} 条，去重后新增 {len(new_items)} 条")
     if not new_items:
         # 用户要求：昨日全部智库无更新时，写入一条占位记录；有更新才记录正式条目
+        # 防重：主表已有今天的占位记录则不重复写（手动多次触发时）
+        has_placeholder = any("（昨日无更新）" in str(r["fields"].get("原标题", ""))
+                              and str(r["fields"].get("抓取日期", "")).startswith(today.isoformat())
+                              for r in records)
         if not dry_run:
-            fz.batch_create(t_main, [{
-                "原标题": "（昨日无更新）",
-                "中文标题": f"昨日无更新：8家智库均无新发布（{window_start.strftime('%m-%d')}）",
-                "抓取日期": date_str(today),
-                "状态": "跳过",
-            }])
-            print("[智库] 已写入「昨日无更新」占位记录")
+            if has_placeholder:
+                print("[智库] 今日占位记录已存在，跳过")
+            else:
+                fz.batch_create(t_main, [{
+                    "原标题": "（昨日无更新）",
+                    "中文标题": f"昨日无更新：8家智库均无新发布（{window_start.strftime('%m-%d')}）",
+                    "抓取日期": date_str(today),
+                    "状态": "跳过",
+                }])
+                print("[智库] 已写入「昨日无更新」占位记录")
         else:
-            print("[智库] [dry] 应写入「昨日无更新」占位记录")
+            print("[智库] [dry] 应写入「昨日无更新」占位记录" if not has_placeholder else "[智库] [dry] 占位已存在")
         return
 
     # ---- LLM 批量生成中文标题/摘要/标签/相关度（每批≤20）----
