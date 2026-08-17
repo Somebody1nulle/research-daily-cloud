@@ -36,11 +36,41 @@ def parse_date(entry):
     return None
 
 
-def fetch_rss(source, window_start, window_end):
-    """抓 RSS，只保留窗口内条目；无发布时间的条目丢弃（用户要求：只要昨日更新）"""
+def _discover_feed(home_url):
+    """RSS 404 时从首页 <link rel="alternate" type="application/rss+xml"> 自动发现真实 feed 地址"""
     try:
-        r = requests.get(source["feed_url"], headers=UA, timeout=(8, 20))
+        r = requests.get(home_url, headers=UA, timeout=(8, 15))
         r.raise_for_status()
+        m = re.search(r'<link[^>]+type=["\']application/rss\+xml["\'][^>]*>', r.text, re.I)
+        if not m:
+            return None
+        tag = m.group(0)
+        hm = re.search(r'href=["\']([^"\']+)["\']', tag, re.I)
+        if not hm:
+            return None
+        from urllib.parse import urljoin
+        return urljoin(home_url, hm.group(1))
+    except Exception:
+        return None
+
+
+def fetch_rss(source, window_start, window_end):
+    """抓 RSS，只保留窗口内条目；无发布时间的条目丢弃（用户要求：只要昨日更新）。
+    feed 404 时自动从首页发现真实 RSS 地址（智库站常改 feed 路径）"""
+    try:
+        url = source["feed_url"]
+        try:
+            r = requests.get(url, headers=UA, timeout=(8, 20))
+            r.raise_for_status()
+        except requests.HTTPError:
+            from urllib.parse import urlparse
+            home = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+            alt = _discover_feed(home)
+            if not alt:
+                raise
+            r = requests.get(alt, headers=UA, timeout=(8, 20))
+            r.raise_for_status()
+            print(f"    [{source['name']}] feed 404，已自动发现: {alt[:70]}")
         feed = feedparser.parse(r.content)
         items = []
         for e in feed.entries:
