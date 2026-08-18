@@ -134,7 +134,7 @@ def _parse_date_near(tag, path_inc=""):
                     return dup.parse(t.get_text(strip=True))
                 except Exception:
                     pass
-        text = scope.get_text(" ", strip=True)[:400]
+        text = scope.get_text(" ", strip=True)[:900]  # 长摘要卡片日期位置靠后，窗口放大
         # 数字格式：2026-08-17 / 2026/8/17 / 2026年8月17日
         m = re.search(r"(20\d\d[-/年]\d{1,2}[-/月]\d{1,2})", text)
         if m:
@@ -221,6 +221,101 @@ def _fetch_browser(source, window_start, window_end):
     return _extract_items_from_html(html, source, window_start, window_end)
 
 
+def _parse_date_from_article_page(html):
+    """从文章详情页提取发布日期：meta 标签 → time 标签 → 正文前部英文日期"""
+    from bs4 import BeautifulSoup
+    from dateutil import parser as dup
+    soup = BeautifulSoup(html, "html.parser")
+    # 1. meta 标签（最可靠）
+    for attrs in ({"property": "article:published_time"}, {"name": "date"},
+                  {"name": "publish_date"}, {"name": "dc.date"}, {"itemprop": "datePublished"}):
+        tag = soup.find("meta", attrs=attrs)
+        if tag and tag.get("content"):
+            try:
+                return dup.parse(tag["content"])
+            except Exception:
+                pass
+    # 2. time 标签
+    t = soup.find("time")
+    if t:
+        for v in (t.get("datetime"), t.get("title"), t.get_text(strip=True)):
+            if v:
+                try:
+                    return dup.parse(v)
+                except Exception:
+                    pass
+    # 3. 页面文本前 2000 字符内的日期（数字/英文）
+    text = soup.get_text(" ", strip=True)[:2000]
+    m = re.search(r"(20\d\d[-/年]\d{1,2}[-/月]\d{1,2})", text) or re.search(
+        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+20\d\d"
+        r"|\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s+20\d\d)", text, re.I)
+    if m:
+        try:
+            return dup.parse(m.group(1).replace("年", "-").replace("月", "-").replace("日", ""))
+        except Exception:
+            pass
+    return None
+
+
+def _fetch_article_dated(source, window_start, window_end, limit=5):
+    """列表页无日期时（如桥水）：取前 N 个文章链接，逐个进文章页提取发布日期"""
+    try:
+        r = requests.get(source["list_url"], headers=UA, timeout=(8, 20))
+        r.raise_for_status()
+        html = r.text
+    except Exception:
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                try:
+                    browser = p.chromium.launch(channel="chrome", args=["--no-sandbox", "--disable-dev-shm-usage"])
+                except Exception:
+                    browser = p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
+                try:
+                    page = browser.new_page(user_agent=UA["User-Agent"])
+                    page.goto(source["list_url"], wait_until="domcontentloaded", timeout=45000)
+                    page.wait_for_timeout(4000)
+                    html = page.content()
+                finally:
+                    browser.close()
+        except Exception as bx:
+            return [], f"列表页获取失败: {str(bx)[:60]}"
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    path_inc = source.get("path_include", "")
+    links, seen = [], set()
+    for a in soup.find_all("a", href=True):
+        href = str(a["href"])
+        if path_inc and path_inc not in href:
+            continue
+        if href.startswith("/"):
+            from urllib.parse import urljoin
+            href = urljoin(source["list_url"], href)
+        title = a.get_text(strip=True)
+        if len(title) < 15 or href in seen:
+            continue
+        seen.add(href)
+        links.append({"title": title, "url": href})
+        if len(links) >= limit:
+            break
+    items = []
+    for it in links:
+        try:
+            pr = requests.get(it["url"], headers=UA, timeout=(8, 20))
+            pr.raise_for_status()
+            pub = _parse_date_from_article_page(pr.text)
+        except Exception:
+            continue
+        if pub is None:
+            continue
+        if pub.tzinfo is None:
+            from src.main import CST as _CST
+            pub = pub.replace(tzinfo=_CST)
+        if window_start <= pub < window_end:
+            items.append({"title": it["title"], "url": it["url"], "published_at": pub, "summary_raw": ""})
+    return items, None if items else f"进{len(links)}个文章页取日期，窗口内 0 条"
+
+
 def _debug_dump_cards(html, source, label):
     """调试模式（TT_DEBUG_HTML=1）：打印前2个文章卡片的 HTML 结构，供分析各站日期位置"""
     import os
@@ -239,7 +334,11 @@ def _debug_dump_cards(html, source, label):
 
 
 def fetch_scrape(source, window_start, window_end):
-    """抓列表页；静态抓取无结果时自动降级 Playwright 浏览器渲染"""
+    """抓列表页；静态抓取无结果时自动降级 Playwright 浏览器渲染；
+    列表页本身无日期的站点（article_dated: true）进文章页取日期"""
+    # 桥水类：列表页无日期，直接走文章页取日期通道
+    if source.get("article_dated"):
+        return _fetch_article_dated(source, window_start, window_end)
     try:
         r = requests.get(source["list_url"], headers=UA, timeout=(8, 20))
         r.raise_for_status()

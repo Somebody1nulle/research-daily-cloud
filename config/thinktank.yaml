@@ -46,8 +46,9 @@ sources:
   - name: "Bridgewater"
     type: "scrape"
     list_url: "https://www.bridgewater.com/research-and-insights"
-    path_include: "/research-and-insights/"   # 只保留文章链接，过滤导航页
-    note: "无公开RSS，抓研究洞察列表页"
+    path_include: "/research-and-insights/"
+    article_dated: true   # 列表卡片无日期，进文章页取发布日期
+    note: "无公开RSS；列表页无日期（调试验证），走文章页取日期"
   - name: "Economic Club of Washington"
     type: "scrape"
     list_url: "https://www.economicclub.org/events"
