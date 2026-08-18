@@ -72,6 +72,7 @@ def fetch_rss(source, window_start, window_end):
             r.raise_for_status()
             print(f"    [{source['name']}] feed 404，已自动发现: {alt[:70]}")
         feed = feedparser.parse(r.content)
+        total = len(feed.entries)
         items = []
         for e in feed.entries:
             pub = parse_date(e)
@@ -82,7 +83,10 @@ def fetch_rss(source, window_start, window_end):
             summary = re.sub(r"<[^>]+>", "", getattr(e, "summary", "") or "")[:400]
             items.append({"title": e.get("title", ""), "url": e.get("link", ""),
                           "published_at": pub, "summary_raw": summary})
-        return items, None
+        # 诊断日志：区分「feed 空（反爬/格式错）」和「有更新但不在窗口」
+        if total == 0:
+            return [], f"feed 解析出 0 条目（可能反爬或格式错误，响应 {len(r.content)}B）"
+        return items, None if items else f"解析 {total} 条但窗口内 0 条"
     except Exception as ex:
         return [], str(ex)
 
