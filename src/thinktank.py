@@ -58,19 +58,31 @@ def fetch_rss(source, window_start, window_end):
     """抓 RSS，只保留窗口内条目；无发布时间的条目丢弃（用户要求：只要昨日更新）。
     feed 404 时自动从首页发现真实 RSS 地址（智库站常改 feed 路径）"""
     try:
-        url = source["feed_url"]
-        try:
-            r = requests.get(url, headers=UA, timeout=(8, 20))
-            r.raise_for_status()
-        except requests.HTTPError:
+        urls = [source["feed_url"]] + source.get("feed_candidates", [])
+        r, used = None, None
+        for u in urls:
+            try:
+                r = requests.get(u, headers=UA, timeout=(8, 20))
+                r.raise_for_status()
+                used = u
+                break
+            except Exception:
+                r = None  # 失败时清空，避免误用坏响应
+                continue
+        if r is None:
+            # 全部候选失败 → 首页自动发现
             from urllib.parse import urlparse
-            home = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+            home = f"{urlparse(urls[0]).scheme}://{urlparse(urls[0]).netloc}"
             alt = _discover_feed(home)
             if not alt:
-                raise
+                raise RuntimeError(f"全部候选 feed 均不可达（{len(urls)} 个）")
             r = requests.get(alt, headers=UA, timeout=(8, 20))
             r.raise_for_status()
-            print(f"    [{source['name']}] feed 404，已自动发现: {alt[:70]}")
+            used = alt
+            print(f"    [{source['name']}] 首页发现 feed: {alt[:70]}")
+        elif used != urls[0]:
+            print(f"    [{source['name']}] 主 feed 失效，候选生效: {used[:70]}")
+        assert r is not None
         feed = feedparser.parse(r.content)
         total = len(feed.entries)
         items = []
