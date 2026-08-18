@@ -108,7 +108,9 @@ def fetch_rss(source, window_start, window_end):
 
 
 def _parse_date_near(tag, path_inc=""):
-    """从链接附近的 HTML 中解析日期（time 标签 / datetime 属性 / 常见日期文本）。
+    """从链接附近的 HTML 中解析日期。
+    支持：<time datetime> 标签、数字格式(2026-08-17)、英文格式(August 17, 2026 / 17 Aug 2026)、
+    相对日期(2 days ago)。
     向上爬层时若进入含多个文章链接的「列表容器」则停止——防止把别的文章的日期错配过来。"""
     from dateutil import parser as dup
     scope = tag
@@ -132,13 +134,33 @@ def _parse_date_near(tag, path_inc=""):
                     return dup.parse(t.get_text(strip=True))
                 except Exception:
                     pass
-        text = scope.get_text(" ", strip=True)[:300]
+        text = scope.get_text(" ", strip=True)[:400]
+        # 数字格式：2026-08-17 / 2026/8/17 / 2026年8月17日
         m = re.search(r"(20\d\d[-/年]\d{1,2}[-/月]\d{1,2})", text)
         if m:
             try:
                 return dup.parse(m.group(1).replace("年", "-").replace("月", "-").replace("日", ""))
             except Exception:
                 pass
+        # 英文格式：August 17, 2026 / Aug 17 2026 / 17 August 2026
+        m = re.search(r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+20\d\d"
+                      r"|\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s+20\d\d)",
+                      text, re.I)
+        if m:
+            try:
+                return dup.parse(m.group(1))
+            except Exception:
+                pass
+        # 相对日期：N days ago / N hours ago / yesterday
+        m = re.search(r"(\d+)\s+(day|hour)s?\s+ago|yesterday", text, re.I)
+        if m:
+            from datetime import datetime, timedelta
+            from src.main import CST as _CST
+            now = datetime.now(_CST)
+            if m.group(0).lower() == "yesterday":
+                return now - timedelta(days=1)
+            n, unit = int(m.group(1)), m.group(2).lower()
+            return now - timedelta(**{"days" if unit == "day" else "hours": n})
         scope = scope.parent
     return None
 
@@ -195,7 +217,25 @@ def _fetch_browser(source, window_start, window_end):
             html = page.content()
         finally:
             browser.close()
+    _debug_dump_cards(html, source, "浏览器")
     return _extract_items_from_html(html, source, window_start, window_end)
+
+
+def _debug_dump_cards(html, source, label):
+    """调试模式（TT_DEBUG_HTML=1）：打印前2个文章卡片的 HTML 结构，供分析各站日期位置"""
+    import os
+    if not os.environ.get("TT_DEBUG_HTML"):
+        return
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    path_inc = source.get("path_include", "")
+    anchors = [a for a in soup.find_all("a", href=True)
+               if path_inc in str(a["href"]) and len(a.get_text(strip=True)) >= 15][:2]
+    print(f"    [DEBUG {source['name']}@{label}] 整页 {len(html)}B，文章链接 {len(anchors)} 个（取样）")
+    for i, a in enumerate(anchors):
+        card = a.parent.parent if a.parent and a.parent.parent else a
+        snippet = str(card)[:600].replace("\n", " ")
+        print(f"    [DEBUG 卡片{i+1}] {snippet}")
 
 
 def fetch_scrape(source, window_start, window_end):
@@ -203,6 +243,7 @@ def fetch_scrape(source, window_start, window_end):
     try:
         r = requests.get(source["list_url"], headers=UA, timeout=(8, 20))
         r.raise_for_status()
+        _debug_dump_cards(r.text, source, "静态")
         items = _extract_items_from_html(r.text, source, window_start, window_end)
         if items:
             return items, None
