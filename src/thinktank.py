@@ -98,7 +98,11 @@ def fetch_rss(source, window_start, window_end):
         # 诊断日志：区分「feed 空（反爬/格式错）」和「有更新但不在窗口」
         if total == 0:
             return [], f"feed 解析出 0 条目（可能反爬或格式错误，响应 {len(r.content)}B）"
-        return items, None if items else f"解析 {total} 条但窗口内 0 条"
+        if not items:
+            dates = [parse_date(e) for e in feed.entries[:5]]
+            date_strs = [d.strftime("%m-%d %H:%M") if d else "无日期" for d in dates]
+            return [], f"解析 {total} 条但窗口内 0 条（前5条日期: {', '.join(date_strs)}）"
+        return items, None
     except Exception as ex:
         return [], str(ex)
 
