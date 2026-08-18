@@ -143,45 +143,82 @@ def _parse_date_near(tag, path_inc=""):
     return None
 
 
+def _extract_items_from_html(html, source, window_start, window_end):
+    """从 HTML 中提取文章链接+日期，过滤出窗口内条目（requests/浏览器共用）"""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+    items, seen = [], set()
+    path_inc = source.get("path_include", "")
+    for a in soup.find_all("a", href=True):
+        href = str(a["href"])
+        title = a.get_text(strip=True)
+        if not title or len(title) < 15:
+            continue
+        if href.startswith("/"):
+            from urllib.parse import urljoin
+            href = urljoin(source["list_url"], href)
+        if href in seen or not href.startswith("http"):
+            continue
+        if path_inc and path_inc not in href:
+            continue
+        if href.rstrip("/") == source["list_url"].rstrip("/"):
+            continue
+        seen.add(href)
+        pub = _parse_date_near(a, path_inc)
+        if pub is None:
+            continue  # 无日期不收
+        if pub.tzinfo is None:
+            from src.main import CST as _CST
+            pub = pub.replace(tzinfo=_CST)
+        if not (window_start <= pub < window_end):
+            continue  # 旧文不收
+        items.append({"title": title, "url": href, "published_at": pub, "summary_raw": ""})
+        if len(items) >= 15:
+            break
+    return items
+
+
+def _fetch_browser(source, window_start, window_end):
+    """Playwright 无头浏览器渲染列表页（应对 JS 渲染/反爬页面），按需懒加载。
+    优先用 runner 预装的 Google Chrome（channel=chrome，省下载），失败退回内置 Chromium。"""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(channel="chrome",
+                                        args=["--no-sandbox", "--disable-dev-shm-usage"])
+        except Exception:
+            browser = p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
+        try:
+            page = browser.new_page(user_agent=UA["User-Agent"])
+            page.goto(source["list_url"], wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(4000)  # 等 JS 渲染出列表
+            html = page.content()
+        finally:
+            browser.close()
+    return _extract_items_from_html(html, source, window_start, window_end)
+
+
 def fetch_scrape(source, window_start, window_end):
-    """无 RSS 站点抓列表页；只保留能解析出日期且在窗口内的条目，无日期一律丢弃"""
+    """抓列表页；静态抓取无结果时自动降级 Playwright 浏览器渲染"""
     try:
-        from bs4 import BeautifulSoup
         r = requests.get(source["list_url"], headers=UA, timeout=(8, 20))
         r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
-        items, seen = [], set()
-        path_inc = source.get("path_include", "")
-        for a in soup.find_all("a", href=True):
-            href = str(a["href"])
-            title = a.get_text(strip=True)
-            if not title or len(title) < 15:
-                continue
-            if href.startswith("/"):
-                from urllib.parse import urljoin
-                href = urljoin(source["list_url"], href)
-            if href in seen or not href.startswith("http"):
-                continue
-            # 只保留文章路径，过滤导航/页脚链接
-            if path_inc and path_inc not in href:
-                continue
-            if href.rstrip("/") == source["list_url"].rstrip("/"):
-                continue
-            seen.add(href)
-            pub = _parse_date_near(a, path_inc)
-            if pub is None:
-                continue  # 无日期不收
-            if pub.tzinfo is None:
-                from src.main import CST as _CST
-                pub = pub.replace(tzinfo=_CST)
-            if not (window_start <= pub < window_end):
-                continue  # 旧文不收
-            items.append({"title": title, "url": href, "published_at": pub, "summary_raw": ""})
-            if len(items) >= 15:
-                break
-        return items, None
+        items = _extract_items_from_html(r.text, source, window_start, window_end)
+        if items:
+            return items, None
+        # 静态无结果（JS 渲染/日期在动态元素里）→ 浏览器兜底
+        try:
+            items = _fetch_browser(source, window_start, window_end)
+            return items, None if items else "静态+浏览器渲染后仍 0 条（窗口内无更新或日期未渲染）"
+        except Exception as bx:
+            return [], f"静态 0 条，浏览器兜底失败: {str(bx)[:60]}"
     except Exception as ex:
-        return [], str(ex)
+        # 静态请求直接失败也尝试浏览器（反爬 403 等）
+        try:
+            items = _fetch_browser(source, window_start, window_end)
+            return items, None if items else f"静态失败({str(ex)[:40]})，浏览器渲染后 0 条"
+        except Exception as bx:
+            return [], f"静态失败({str(ex)[:40]})，浏览器兜底也失败: {str(bx)[:60]}"
 
 
 def step_thinktank(fz, llm, tt_cfg, dry_run):
