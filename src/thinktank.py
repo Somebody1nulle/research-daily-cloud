@@ -329,20 +329,22 @@ def _debug_dump_cards(html, source, label):
                if path_inc in str(a["href"]) and len(a.get_text(strip=True)) >= 15][:2]
     print(f"    [DEBUG {source['name']}@{label}] 整页 {len(html)}B，文章链接 {len(anchors)} 个（取样）")
     if not anchors:
-        # 0 匹配时打印页面真实链接的路径模式，供校准 path_include
+        # 0 匹配时打印页面真实链接的路径模式（含同域绝对链接），供校准 path_include
         from collections import Counter
         from urllib.parse import urlparse
+        domain = urlparse(source["list_url"]).netloc
         paths = Counter()
         for a in soup.find_all("a", href=True):
             h = str(a["href"])
-            if h.startswith("/") and len(a.get_text(strip=True)) >= 10:
-                parts = urlparse(h).path.strip("/").split("/")
-                if parts and parts[0]:
-                    paths["/" + parts[0] + "/"] += 1
-        print(f"    [DEBUG {source['name']} 路径分布] {dict(paths.most_common(10))}")
+            if h.startswith("/") or (h.startswith("http") and domain in h):
+                if len(a.get_text(strip=True)) >= 10 or a.find("img"):
+                    parts = urlparse(h).path.strip("/").split("/")
+                    if parts and parts[0]:
+                        paths["/" + parts[0] + "/"] += 1
+        print(f"    [DEBUG {source['name']} 路径分布] {dict(paths.most_common(12))}")
     for i, a in enumerate(anchors):
         card = a.parent.parent if a.parent and a.parent.parent else a
-        snippet = str(card)[:600].replace("\n", " ")
+        snippet = str(card)[:1200].replace("\n", " ")  # 加长：看清日期元素位置
         print(f"    [DEBUG 卡片{i+1}] {snippet}")
 
 
