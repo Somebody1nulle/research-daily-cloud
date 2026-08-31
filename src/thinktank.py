@@ -122,6 +122,15 @@ def _parse_date_near(tag, path_inc=""):
         if path_inc and len({str(a["href"]) for a in scope.find_all("a", href=True)
                              if path_inc in str(a["href"])}) >= 2:
             return None
+        # 优先认日期专用元素（class/id 含 date/time/publish），CMS 通用约定
+        for el in scope.find_all(class_=re.compile(r"date|time|publish", re.I))[:5] + \
+                  scope.find_all(id=re.compile(r"date|time|publish", re.I))[:3]:
+            for v in (el.get("datetime"), el.get("content"), el.get_text(strip=True)[:60]):
+                if v:
+                    try:
+                        return dup.parse(str(v))
+                    except Exception:
+                        pass
         t = scope.find("time")
         if t:
             for attr in ("datetime", "title"):
@@ -135,7 +144,7 @@ def _parse_date_near(tag, path_inc=""):
                     return dup.parse(t.get_text(strip=True))
                 except Exception:
                     pass
-        text = scope.get_text(" ", strip=True)[:900]  # 长摘要卡片日期位置靠后，窗口放大
+        text = scope.get_text(" ", strip=True)[:1400]  # 长摘要/长正文卡片日期靠后，窗口放大
         # 数字格式：2026-08-17 / 2026/8/17 / 2026年8月17日
         m = re.search(r"(20\d\d[-/年]\d{1,2}[-/月]\d{1,2})", text)
         if m:
