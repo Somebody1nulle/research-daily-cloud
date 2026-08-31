@@ -117,9 +117,10 @@ def _parse_date_near(tag, path_inc=""):
     for _ in range(4):  # 最多向上找4层父元素
         if scope is None:
             break
-        # 多文章容器检测：本层含 ≥2 个文章链接 → 已逃出单篇文章卡片，停止
-        if path_inc and len([a for a in scope.find_all("a", href=True)
-                             if path_inc in str(a["href"])]) >= 2:
+        # 多文章容器检测：本层含 ≥2 个「不同」文章链接 → 已逃出单篇文章卡片，停止
+        # （同一卡片内图片链接+标题链接指向同一 URL，属同一篇，用去重后的集合判断）
+        if path_inc and len({str(a["href"]) for a in scope.find_all("a", href=True)
+                             if path_inc in str(a["href"])}) >= 2:
             return None
         t = scope.find("time")
         if t:
@@ -327,6 +328,18 @@ def _debug_dump_cards(html, source, label):
     anchors = [a for a in soup.find_all("a", href=True)
                if path_inc in str(a["href"]) and len(a.get_text(strip=True)) >= 15][:2]
     print(f"    [DEBUG {source['name']}@{label}] 整页 {len(html)}B，文章链接 {len(anchors)} 个（取样）")
+    if not anchors:
+        # 0 匹配时打印页面真实链接的路径模式，供校准 path_include
+        from collections import Counter
+        from urllib.parse import urlparse
+        paths = Counter()
+        for a in soup.find_all("a", href=True):
+            h = str(a["href"])
+            if h.startswith("/") and len(a.get_text(strip=True)) >= 10:
+                parts = urlparse(h).path.strip("/").split("/")
+                if parts and parts[0]:
+                    paths["/" + parts[0] + "/"] += 1
+        print(f"    [DEBUG {source['name']} 路径分布] {dict(paths.most_common(10))}")
     for i, a in enumerate(anchors):
         card = a.parent.parent if a.parent and a.parent.parent else a
         snippet = str(card)[:600].replace("\n", " ")
